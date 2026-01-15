@@ -109,3 +109,26 @@ action = { type = "exec", cmd = "/usr/local/bin/qlc_trigger.sh", args = ["RunSce
 ---
 
 If you'd like, I can also add: a sample `mappings.toml`, a small CLI for loading configs, or an example mapping implementation. 🔧
+
+---
+
+## macOS Tray / Launch at Login (menu bar icon) 🍎
+
+A native macOS menu bar (tray) is provided by the optional feature `tray`. It gives you quick access to:
+
+- **Open Config** — open `mappings.toml` in Visual Studio Code
+- **Restart** — spawn a new instance and exit the current one
+- **Toggle Open at Login** — register/remove a LaunchAgent plist under `~/Library/LaunchAgents`
+- **Quit** — stop the app
+
+Enable and run with:
+
+```bash
+cargo run --features "joystick simulate-keys tray"
+```
+
+Notes & tips:
+
+- The tray menu uses a LaunchAgent plist to implement "Open at Login". The plist is written to `~/Library/LaunchAgents` and points to the running executable.
+- Key simulation still requires macOS Accessibility permission to work when the app is not focused — grant that in System Settings → Privacy & Security → Accessibility.
+- If the `code` CLI isn't available, the tray will fallback to `open -a "Visual Studio Code" mappings.toml`.

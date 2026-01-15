@@ -2,6 +2,9 @@ use log::{info, warn};
 use std::sync::{Arc, RwLock};
 mod config;
 
+#[cfg(all(target_os = "macos", feature = "tray"))]
+mod tray;
+
 fn main() {
     env_logger::init();
     info!("joy2qlc starting");
@@ -23,6 +26,13 @@ fn main() {
     // High-level structure: there are feature-gated modules below that
     // demonstrate how to read joystick events and either simulate keypresses
     // or send REST calls. Enable the appropriate features in Cargo.toml.
+
+    #[cfg(all(target_os = "macos", feature = "tray"))]
+    {
+        if let Err(e) = tray::start_tray(cfg_path) {
+            warn!("Tray failed to start: {:?}", e);
+        }
+    }
 
     #[cfg(feature = "joystick")]
     {

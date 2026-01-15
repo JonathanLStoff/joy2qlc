@@ -12,6 +12,7 @@ joystick = ["gilrs"]
 simulate-keys = ["enigo"]
 rest-client = ["reqwest", "tokio"]
 rest-server = ["warp", "tokio"]
+tray = ["tray-item"]
 
 [dependencies]
 # Joystick/gamepad input
@@ -32,6 +33,9 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.7"
 notify = "5.0"
 anyhow = "1.0"
+
+# macOS tray
+tray-item = { version = "0.6", optional = true }
 
 # Logging
 log = "0.4"
