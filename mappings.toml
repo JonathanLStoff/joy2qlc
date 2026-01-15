@@ -1,0 +1,16 @@
+# Sample mappings for joy2qlc
+# - input.type: "button" or "axis"
+# - input.code: Match the Debug name from `gilrs` (eg. "South", "East", "LeftTrigger")
+# - action.type: "key" | "rest" | "exec"
+
+[[mappings]]
+input = { type = "button", code = "South" }
+action = { type = "key", key = "Space" }
+
+[[mappings]]
+input = { type = "button", code = "East" }
+action = { type = "rest", method = "POST", url = "http://localhost:8080/event", body = "{ \"event\": \"east_pressed\" }" }
+
+[[mappings]]
+input = { type = "button", code = "North" }
+action = { type = "exec", cmd = "/usr/local/bin/qlc_trigger.sh", args = ["scene1"] }

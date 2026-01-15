@@ -1,0 +1,42 @@
+[package]
+name = "joy2qlc"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <you@example.com>"]
+description = "Convert flight joystick input to keypresses or REST calls."
+license = "MIT OR Apache-2.0"
+
+[features]
+default = ["joystick", "simulate-keys"]
+joystick = ["gilrs"]
+simulate-keys = ["enigo"]
+rest-client = ["reqwest", "tokio"]
+rest-server = ["warp", "tokio"]
+
+[dependencies]
+# Joystick/gamepad input
+gilrs = { version = "0.9", optional = true }
+
+# Key simulation (cross-platform)
+enigo = { version = "0.0.14", optional = true }
+
+# HTTP client/server
+reqwest = { version = "0.11", optional = true, features = ["json"] }
+warp = { version = "0.3", optional = true }
+
+# Async runtime and (de)serialization
+tokio = { version = "1", optional = true, features = ["rt-multi-thread", "macros"] }
+serde = { version = "1.0", features = ["derive"] }
+
+# Config / hot-reload
+toml = "0.7"
+notify = "5.0"
+anyhow = "1.0"
+
+# Logging
+log = "0.4"
+env_logger = "0.9"
+
+[package.metadata]
+# Notes: enable features as needed, for example:
+# `cargo run --features "joystick simulate-keys"`
