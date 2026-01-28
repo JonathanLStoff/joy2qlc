@@ -1,16 +1,23 @@
-# Sample mappings for joy2qlc
+# Sample MIDI mappings for joy2qlc
 # - input.type: "button" or "axis"
 # - input.code: Match the Debug name from `gilrs` (eg. "South", "East", "LeftTrigger")
-# - action.type: "key" | "rest" | "exec"
+# - action.type: MIDI actions. Examples below.
 
+# Control Change (e.g. knob)
 [[mappings]]
-input = { type = "button", code = "South" }
-action = { type = "key", key = "Space" }
+input = { type = "axis", code = "LeftTrigger" }
+action = { type = "control_change", channel = 0, controller = 1, value = 64 }
 
+# Map LeftStickX axis to Control Change controller 16 on channel 0 (MIDI channel 1)
+# This maps -1.0..1.0 -> 0..127 and is suitable for QLC+ pan/horizontal parameter (controller 16)
 [[mappings]]
-input = { type = "button", code = "East" }
-action = { type = "rest", method = "POST", url = "http://localhost:8080/event", body = "{ \"event\": \"east_pressed\" }" }
+input = { type = "axis", code = "LeftStickX", while_button = "South", release_value = 64 }
+action = { type = "control_change_from_axis", channel = 0, controller = 16 }
+[[mappings]]
+input = { type = "axis", code = "LeftStickY", while_button = "South", release_value = 64 }
+action = { type = "control_change_from_axis", channel = 0, controller = 17, invert = true }
 
+# Program change (change instrument)
 [[mappings]]
 input = { type = "button", code = "North" }
-action = { type = "exec", cmd = "/usr/local/bin/qlc_trigger.sh", args = ["scene1"] }
+action = { type = "program_change", channel = 0, program = 12 }

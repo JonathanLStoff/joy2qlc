@@ -23,10 +23,10 @@ This project reads events from a joystick or gamepad and maps them to actions su
 3. Build and run with desired features. Examples:
 
 ```bash
-# Build and run with joystick reading + simulate keys
-cargo run --features "joystick simulate-keys"
+# Build and run with joystick reading + MIDI output + tray on macOS
+cargo run --features "joystick midi tray"
 
-# Build with REST client and joystick
+# Build and run with joystick reading + REST client
 cargo run --features "joystick rest-client"
 
 # Build the REST server
@@ -117,6 +117,7 @@ If you'd like, I can also add: a sample `mappings.toml`, a small CLI for loading
 A native macOS menu bar (tray) is provided by the optional feature `tray`. It gives you quick access to:
 
 - **Open Config** — open `mappings.toml` in Visual Studio Code
+- **Open Actions Log** — open the recorded `/Library/Logs/joy2qlc/actions.log`
 - **Restart** — spawn a new instance and exit the current one
 - **Toggle Open at Login** — register/remove a LaunchAgent plist under `~/Library/LaunchAgents`
 - **Quit** — stop the app
@@ -130,5 +131,7 @@ cargo run --features "joystick simulate-keys tray"
 Notes & tips:
 
 - The tray menu uses a LaunchAgent plist to implement "Open at Login". The plist is written to `~/Library/LaunchAgents` and points to the running executable.
+- The toolbar icon is provided as `assets/toolbar_icon.svg` and will be used by the tray. The app doesn't install into the Dock — the menu bar icon is shown by the tray.
+- All MIDI actions performed are appended to `~/Library/Logs/joy2qlc/actions.log`.
 - Key simulation still requires macOS Accessibility permission to work when the app is not focused — grant that in System Settings → Privacy & Security → Accessibility.
 - If the `code` CLI isn't available, the tray will fallback to `open -a "Visual Studio Code" mappings.toml`.

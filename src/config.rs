@@ -19,25 +19,50 @@ pub struct InputSpec {
     #[serde(rename = "type")]
     pub typ: String, // "button" | "axis"
     pub code: String, // eg. "South" or "LeftStickX"
+
+    /// Optional button name that must be held for this input to be active
+    #[serde(default)]
+    pub while_button: Option<String>,
+
+    /// Optional value to send when the condition button is released (default: 0)
+    #[serde(default)]
+    pub release_value: Option<u8>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum Action {
-    #[serde(rename = "key")]
-    Key { key: String },
+    #[serde(rename = "note_on")]
+    NoteOn { channel: Option<u8>, note: u8, velocity: Option<u8> },
 
-    #[serde(rename = "rest")]
-    Rest { method: Option<String>, url: String, body: Option<String> },
+    #[serde(rename = "note_off")]
+    NoteOff { channel: Option<u8>, note: u8, velocity: Option<u8> },
 
-    #[serde(rename = "exec")]
-    Exec { cmd: String, args: Option<Vec<String>> },
+    #[serde(rename = "control_change")]
+    ControlChange { channel: Option<u8>, controller: u8, value: u8 },
+
+    #[serde(rename = "program_change")]
+    ProgramChange { channel: Option<u8>, program: u8 },
+
+    /// Dynamic control change driven by axis value (-1.0..1.0 mapped to 0..127)
+    #[serde(rename = "control_change_from_axis")]
+    ControlChangeFromAxis { channel: Option<u8>, controller: u8, invert: Option<bool> },
 }
 
 impl Config {
     pub fn load_from(path: &str) -> Result<Self, anyhow::Error> {
         let s = fs::read_to_string(path)?;
         let cfg: Config = toml::from_str(&s)?;
+        // Warn if any axis mapping has release_value set to 0 which is likely unintended
+        for m in &cfg.mappings {
+            if m.input.typ == "axis" {
+                if let Some(rv) = m.input.release_value {
+                    if rv == 0 {
+                        warn!("Mapping for axis {} specifies release_value=0 — this will send 0 on release. Consider setting 64 (center) or removing the field to use the default 64.", m.input.code);
+                    }
+                }
+            }
+        }
         Ok(cfg)
     }
 
@@ -95,70 +120,126 @@ impl Config {
         }
         None
     }
+
+    pub fn find_action_for_axis(&self, axis_name: &str) -> Option<Action> {
+        for m in &self.mappings {
+            if m.input.typ == "axis" && m.input.code == axis_name {
+                return Some(m.action.clone());
+            }
+        }
+        None
+    }
+
+    /// Return the matching mapping (clone) for an axis if present. This includes
+    /// the optional `while_button` and `release_value` fields.
+    pub fn find_mapping_for_axis(&self, axis_name: &str) -> Option<Mapping> {
+        for m in &self.mappings {
+            if m.input.typ == "axis" && m.input.code == axis_name {
+                return Some(m.clone());
+            }
+        }
+        None
+    }
+}
+
+pub fn actions_log_path() -> std::path::PathBuf {
+    // macOS log location
+    let home = std::env::var("HOME").unwrap_or_else(|_| String::from("/tmp"));
+    let p = std::path::PathBuf::from(format!("{}/Library/Logs/joy2qlc", home));
+    let _ = std::fs::create_dir_all(&p);
+    p.join("actions.log")
+}
+
+fn append_action_log(line: &str) {
+    let path = actions_log_path();
+    if let Err(e) = std::fs::OpenOptions::new().create(true).append(true).open(&path).and_then(|mut f| {
+        use std::io::Write;
+        writeln!(f, "{}", line)
+    }) {
+        warn!("Failed to append to actions log {:?}: {:?}", path, e);
+    }
+}
+
+/// Public helper to append to the actions log from other modules
+pub fn append_to_actions_log(line: &str) {
+    append_action_log(line);
 }
 
 /// Execute an action (may be no-op if feature is not enabled)
 pub fn execute_action(action: &Action) {
     match action {
-        Action::Key { key } => {
-            #[cfg(feature = "simulate-keys")]
-            {
-                crate::keys::send_key(key);
-            }
-            #[cfg(not(feature = "simulate-keys"))]
-            {
-                warn!("Key action requested but `simulate-keys` feature is disabled: {}", key);
+        Action::NoteOn { channel, note, velocity } => {
+            let ch = channel.unwrap_or(0);
+            let vel = velocity.unwrap_or(127);
+            match crate::midi::send_note_on(ch, *note, vel) {
+                Ok(()) => {
+                    info!("Note On: ch={} note={} vel={}", ch, note, vel);
+                    append_action_log(&format!("NoteOn ch={} note={} vel={}", ch, note, vel));
+                }
+                Err(e) => warn!("Failed to send note on: {}", e),
             }
         }
-        Action::Rest { method, url, body } => {
-            #[cfg(feature = "rest-client")]
-            {
-                // For convenience do a POST with JSON payload containing the body or name
-                let meth = method.as_deref().unwrap_or("POST");
-                match meth {
-                    "POST" => {
-                        if let Some(b) = body {
-                            let client = reqwest::blocking::Client::new();
-                            if let Err(e) = client.post(url).body(b.clone()).send() {
-                                warn!("REST request failed: {:?}", e);
-                            }
-                        } else {
-                            let client = reqwest::blocking::Client::new();
-                            if let Err(e) = client.post(url).send() {
-                                warn!("REST request failed: {:?}", e);
-                            }
-                        }
-                    }
-                    "GET" => {
-                        let client = reqwest::blocking::Client::new();
-                        if let Err(e) = client.get(url).send() {
-                            warn!("REST request failed: {:?}", e);
-                        }
-                    }
-                    _ => warn!("Unsupported HTTP method in mapping: {:?}", method),
+        Action::NoteOff { channel, note, velocity } => {
+            let ch = channel.unwrap_or(0);
+            let vel = velocity.unwrap_or(0);
+            match crate::midi::send_note_off(ch, *note, vel) {
+                Ok(()) => {
+                    info!("Note Off: ch={} note={} vel={}", ch, note, vel);
+                    append_action_log(&format!("NoteOff ch={} note={} vel={}", ch, note, vel));
                 }
-            }
-            #[cfg(not(feature = "rest-client"))]
-            {
-                warn!("REST action requested but `rest-client` feature is disabled: {}", url);
+                Err(e) => warn!("Failed to send note off: {}", e),
             }
         }
-        Action::Exec { cmd, args } => {
-            info!("Running command: {} {:?}", cmd, args);
-            let mut c = std::process::Command::new(cmd);
-            if let Some(a) = args {
-                c.args(a);
-            }
-            match c.spawn() {
-                Ok(mut child) => {
-                    if let Err(e) = child.wait() {
-                        warn!("Command failed: {:?}", e);
-                    }
+        Action::ControlChange { channel, controller, value } => {
+            let ch = channel.unwrap_or(0);
+            match crate::midi::send_control_change(ch, *controller, *value) {
+                Ok(()) => {
+                    info!("Control Change: ch={} ctrl={} val={}", ch, controller, value);
+                    append_action_log(&format!("ControlChange ch={} ctrl={} val={}", ch, controller, value));
                 }
-                Err(e) => {
-                    warn!("Failed to spawn command {}: {:?}", cmd, e);
-                }
+                Err(e) => warn!("Failed to send control change: {}", e),
             }
+        }
+        Action::ProgramChange { channel, program } => {
+            let ch = channel.unwrap_or(0);
+            match crate::midi::send_program_change(ch, *program) {
+                Ok(()) => {
+                    info!("Program Change: ch={} prog={}", ch, program);
+                    append_action_log(&format!("ProgramChange ch={} prog={}", ch, program));
+                }
+                Err(e) => warn!("Failed to send program change: {}", e),
+            }
+        }
+        Action::ControlChangeFromAxis { .. } => {
+            // Axis-driven control changes are handled separately by execute_axis_action
+            warn!("ControlChangeFromAxis received in execute_action; axis events should call execute_axis_action instead");
+        }
+    }
+}
+
+/// Execute an action that depends on an axis value (value in -1.0..1.0)
+pub fn execute_axis_action(action: &Action, value: f32) {
+    match action {
+        Action::ControlChangeFromAxis { channel, controller, invert } => {
+            let ch = channel.unwrap_or(0);
+            let inv = invert.unwrap_or(false);
+            let mut v = value.clamp(-1.0, 1.0);
+            if inv { v = -v; }
+            // Map -1.0..1.0 -> 0..127
+            let cc = (((v + 1.0) / 2.0) * 127.0).round().clamp(0.0, 127.0) as u8;
+            match crate::midi::send_control_change(ch, *controller, cc) {
+                Ok(()) => {
+                    info!("Axis Control Change: ch={} ctrl={} val={} (raw={})", ch, controller, cc, value);
+                    append_action_log(&format!("AxisControlChange ch={} ctrl={} val={} raw={}", ch, controller, cc, value));
+                    // Update terminal midi status line (bottom)
+                    crate::term_status::set_midi_line(&format!("MIDI: bytes [{}, {}, {}] (ch={} ctrl={} val={})", 0xB0u8 | (ch & 0x0f), controller, cc, ch, controller, cc));
+                }
+                Err(e) => warn!("Failed to send axis control change: {}", e),
+            }
+        }
+        _ => {
+            // Not an axis-driven action; ignore or log
+            warn!("execute_axis_action called for non-axis action: {:?}", action);
         }
     }
 }
