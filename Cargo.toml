@@ -48,6 +48,9 @@ once_cell = "1.17"
 # small utility to detect installed CLI tools at runtime
 which = { version = "4", optional = true }
 
+# OSC support (send UDP OSC to QLC+ or other OSC listeners)
+rosc = "0.6"
+
 # tray implementation (modern crate using winit)
 tray-icon = { version = "0.7", optional = true }
 winit = { version = "0.28", optional = true }

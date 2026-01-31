@@ -10,14 +10,25 @@ action = { type = "control_change", channel = 0, controller = 1, value = 64 }
 
 # Map LeftStickX axis to Control Change controller 16 on channel 0 (MIDI channel 1)
 # This maps -1.0..1.0 -> 0..127 and is suitable for QLC+ pan/horizontal parameter (controller 16)
+## Left Mover (Mover1)
 [[mappings]]
-input = { type = "axis", code = "LeftStickX", while_button = "South", release_value = 64 }
-action = { type = "control_change_from_axis", channel = 0, controller = 16 }
+input = { type = "axis", code = "LeftStickX", while_button = "South", release_value = 0.500000001, range = [1.0, -1.0] }
+action = { type = "control_change_from_axis", channel = 0, controller = 16, invert = true, range = [0,1] } # 64772 channel number
 [[mappings]]
-input = { type = "axis", code = "LeftStickY", while_button = "South", release_value = 64 }
-action = { type = "control_change_from_axis", channel = 0, controller = 17, invert = true }
+input = { type = "axis", code = "LeftStickY", while_button = "South", release_value = 0.5000000001, range = [1.0, -1.0] }
+init = { type = "control_change_from_axis", channel = 0, controller = 15, value = [1,0], count = 2, delay_ms = 50 } 
+action = { type = "control_change_from_axis", channel = 0, controller = 17, range = [0,1] } # 60555 channel number
 
-# Program change (change instrument)
+## Right Mover (Mover2)
 [[mappings]]
-input = { type = "button", code = "North" }
-action = { type = "program_change", channel = 0, program = 12 }
+input = { type = "axis", code = "LeftStickX", while_button = "RightTrigger", release_value = 0.500000001, range = [1.0, -1.0] }
+action = { type = "control_change_from_axis", channel = 0, controller = 19,  range = [0,1] } # 64772 channel number
+[[mappings]]
+input = { type = "axis", code = "LeftStickY", while_button = "RightTrigger", release_value = 0.5000000001, range = [1.0, -1.0] }
+init = { type = "control_change_from_axis", channel = 0, controller = 18, value = [1,0], count = 2, delay_ms = 50 } 
+action = { type = "control_change_from_axis", channel = 0, controller = 20, invert = true, range = [0,1] } # 60555 channel number
+
+# Center Movers
+[[mappings]]
+input = { type = "button", code = "East" }
+action = { type = "program_change", channel = 0, program = 12, count = 2, delay_ms = 50 }

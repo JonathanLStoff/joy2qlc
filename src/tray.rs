@@ -86,7 +86,7 @@ fn load_icon() -> Option<tray_icon::icon::Icon> {
 }
 
 pub fn start_tray(cfg_path: &str) -> Result<(), Box<dyn Error>> {
-    println!("TRAY: start_tray called (cfg_path={})", cfg_path);
+    log::info!("TRAY: start_tray called (cfg_path={})", cfg_path);
 
     // Prepare some paths we will need in handlers
     let plist_name = format!("com.{}.joy2qlc.plist", env::var("USER").unwrap_or_else(|_| "joy2qlc".into()));

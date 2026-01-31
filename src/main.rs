@@ -2,13 +2,15 @@ use log::{info, warn};
 use std::sync::{Arc, RwLock};
 mod config;
 mod midi;
+mod osc;
 mod term_status;
 
 #[cfg(all(target_os = "macos", feature = "tray"))]
 mod tray;
 
 fn main() {
-    env_logger::init();
+    // Initialize logger; default to warn to keep the terminal status UI clean.
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     info!("joy2qlc starting");
 
     // Load config (mappings) and start a watcher so mappings can change without restart.
@@ -25,17 +27,25 @@ fn main() {
         warn!("Failed to start config watcher: {:?}", e);
     }
 
-    // Initialize MIDI subsystem early so virtual ports show up in the system MIDI lists
-    #[cfg(feature = "midi")]
+    // Initialize OSC subsystem (we send OSC to QLC+ on localhost by default)
     {
-        if let Err(e) = midi::init() {
-            warn!("MIDI init failed: {}", e);
+        if let Err(e) = osc::init("127.0.0.1:7702") {
+            warn!("OSC init failed: {}", e);
+        } else {
+            warn!("OSC destination: {}", osc::destination());
+            // Test send a message to verify OSC works
+            if let Err(e) = osc::send_control_change(0, 0, 42) {
+                warn!("Test OSC send failed: {}", e);
+            } else {
+                info!("Test OSC message sent to /cc/0 with value 42");
+            }
+            // Start OSC listener for incoming messages on port 9002
+            if let Err(e) = osc::start_listener("0.0.0.0:9002") {
+                warn!("OSC listener failed to start: {}", e);
+            } else {
+                warn!("OSC listener bound on 0.0.0.0:9002");
+            }
         }
-        // Print available ports so it's easy to verify the virtual bus presence
-        let outs = midi::list_output_ports();
-        let ins = midi::list_input_ports();
-        warn!("MIDI outputs: {:?}", outs);
-        warn!("MIDI inputs: {:?}", ins);
     }
 
     // High-level structure: there are feature-gated modules below that
@@ -116,6 +126,55 @@ mod joystick {
                             info!("Mapped action: {:?}", action);
                             crate::config::execute_action(&action);
                         }
+
+                        // Additionally, when a button is pressed, send any configured `init` messages for
+                        // axis mappings that are gated by this button. The spec in `mappings.toml` places
+                        // an `init = { ... }` table next to a mapping; here we send the `count` value if
+                        // present, otherwise the `value` field.
+                        let cfg_read = cfg.read().unwrap();
+                        for m in &cfg_read.mappings {
+                            if m.input.typ == "axis" {
+                                if let Some(req) = &m.input.while_button {
+                                    if req == &btn {
+                                        if let Some(init) = &m.init {
+                                            // Only handle control-change-like init types for now
+                                            if init.typ == "control_change_from_axis" || init.typ == "control_change" {
+                                                if let Some(ctrl) = init.controller {
+                                                    let ch = init.channel.unwrap_or(0);
+                                                    // Build the sequence of values to send
+                                                    let mut values: Vec<i32> = Vec::new();
+                                                    if let Some(iv) = &init.value {
+                                                        match iv {
+                                                            crate::config::InitValue::Int(x) => values.push(*x),
+                                                            crate::config::InitValue::IntList(vs) => values.extend_from_slice(&vs),
+                                                        }
+                                                    }
+                                                    let count = init.count.map(|c| c as usize).unwrap_or(values.len());
+                                                    let delay = init.delay_ms.unwrap_or(0);
+                                                    if values.is_empty() {
+                                                        info!("Init spec for axis {} has no value to send", m.input.code);
+                                                    } else {
+                                                        // Clone for moving into thread
+                                                        let vals_to_send = values.into_iter().take(count).collect::<Vec<i32>>();
+                                                        let code_clone = m.input.code.clone();
+                                                        std::thread::spawn(move || {
+                                                            for v in vals_to_send {
+                                                                let _ = crate::osc::send_control_change(ch, ctrl, v);
+                                                                crate::config::append_to_actions_log(&format!("InitControlChange axis={} ch={} ctrl={} val={}", code_clone, ch, ctrl, v));
+                                                                crate::term_status::set_osc_out_line(&format!("Init: sent /cc/{} {}", ctrl, v));
+                                                                if delay > 0 {
+                                                                    std::thread::sleep(std::time::Duration::from_millis(delay));
+                                                                }
+                                                            }
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     EventType::ButtonReleased(button, code) => {
                         let btn = format!("{:?}", button);
@@ -136,16 +195,33 @@ mod joystick {
                                         match &m.action {
                                             crate::config::Action::ControlChangeFromAxis { channel, controller, .. } => {
                                                 let ch = channel.unwrap_or(0);
-                                                let val = m.input.release_value.unwrap_or(64);
-                                                // Log the raw MIDI bytes that will be sent (status, controller, value)
-                                                let status = 0xB0u8 | (ch & 0x0f);
-                                                let bytes = [status, *controller, val];
-                                                // Update terminal bottom line and then send
-                                                crate::term_status::set_midi_line(&format!("South release: sending MIDI bytes [{}, {}, {}] (status=0x{:02X}, ch={}, ctrl={}, val={})", bytes[0], bytes[1], bytes[2], status, ch, controller, val));
-                                                info!("South release: sending MIDI bytes {:?} (status=0x{:02X}, ch={}, ctrl={}, val={})", bytes, status, ch, controller, val);
-                                                let _ = crate::midi::send_control_change(ch, *controller, val);
-                                                info!("Sent center CC for axis {}: ch={} ctrl={} val={}", m.input.code, ch, controller, val);
-                                                crate::config::append_to_actions_log(&format!("CenterControlChange axis={} ch={} ctrl={} val={}", m.input.code, ch, controller, val));
+                                                // Update terminal bottom line and then send via OSC according to configured release_value
+                                                    match &m.input.release_value {
+                                                        Some(crate::config::ReleaseValue::Int(v)) => {
+                                                            crate::term_status::set_osc_out_line(&format!("South release: sending OSC {} {}", format!("/cc/{}", controller), v));
+                                                            info!("South release: sending OSC /cc/{} val={} (ch={})", controller, v, ch);
+                                                            let _ = crate::osc::send_control_change(ch, *controller, *v);
+                                                            info!("Sent center OSC CC for axis {}: ch={} ctrl={} val={}", m.input.code, ch, controller, v);
+                                                            crate::config::append_to_actions_log(&format!("CenterControlChange axis={} ch={} ctrl={} val={}", m.input.code, ch, controller, v));
+                                                        }
+                                                        Some(crate::config::ReleaseValue::Float(f)) => {
+                                                            crate::term_status::set_osc_out_line(&format!("South release: sending OSC {} {}", format!("/cc/{}", controller), f));
+                                                            info!("South release: sending OSC /cc/{} float={} (ch={})", controller, f, ch);
+                                                            let _ = crate::osc::send_control_change_float(ch, *controller, *f);
+                                                            info!("Sent center OSC FLOAT for axis {}: ch={} ctrl={} val={}", m.input.code, ch, controller, f);
+                                                            crate::config::append_to_actions_log(&format!("CenterControlChangeFloat axis={} ch={} ctrl={} val={}", m.input.code, ch, controller, f));
+                                                        }
+                                                        Some(crate::config::ReleaseValue::SendNil) => {
+                                                            crate::term_status::set_osc_out_line(&format!("South release: sending OSC {} NIL", format!("/cc/{}", controller)));
+                                                            info!("South release: sending OSC /cc/{} NIL (ch={})", controller, ch);
+                                                            let _ = crate::osc::send_control_change_nil(ch, *controller);
+                                                            info!("Sent center OSC NIL for axis {}: ch={} ctrl={}", m.input.code, ch, controller);
+                                                            crate::config::append_to_actions_log(&format!("CenterControlChangeNil axis={} ch={} ctrl={}", m.input.code, ch, controller));
+                                                        }
+                                                        None => {
+                                                            info!("Release value for axis {} is unset — not sending center OSC", m.input.code);
+                                                        }
+                                                    }
                                             }
                                             _ => {}
                                         }
@@ -164,18 +240,19 @@ mod joystick {
                             continue;
                         }
                         let axis_name = format!("{:?}", axis);
-                        if let Some(mapping) = cfg.read().unwrap().find_mapping_for_axis(&axis_name) {
-                            // If the mapping requires a button, only act when it's pressed
+                        // Retrieve all mappings for this axis and execute each one whose
+                        // gating button (if any) is currently pressed.
+                        let cfg_read = cfg.read().unwrap();
+                        let mappings = cfg_read.find_mappings_for_axis(&axis_name);
+                        for mapping in mappings {
                             if let Some(req) = &mapping.input.while_button {
                                 if !pressed.contains(req) {
-                                    // Not pressed => ignore axis
+                                    // gating button not held for this mapping
                                     continue;
                                 }
                             }
                             info!("Mapped axis action: {:?}", mapping.action);
-                            // Axis-driven actions get the raw value so they can map to CC ranges, etc.
-                            // Also update bottom (midi) status line inside execute_axis_action via term_status
-                            crate::config::execute_axis_action(&mapping.action, value);
+                            crate::config::Config::execute_axis_mapping(&mapping, value);
                         }
                     }
                     _ => {}
