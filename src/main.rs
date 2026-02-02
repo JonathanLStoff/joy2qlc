@@ -5,7 +5,7 @@ mod midi;
 mod osc;
 mod term_status;
 
-#[cfg(all(target_os = "macos", feature = "tray"))]
+#[cfg(target_os = "macos")]
 mod tray;
 
 fn main() {
@@ -52,10 +52,10 @@ fn main() {
     // demonstrate how to read joystick events and either simulate keypresses
     // or send REST calls. Enable the appropriate features in Cargo.toml.
 
-    if cfg!(all(target_os = "macos", feature = "tray")) {
+    if cfg!(target_os = "macos") {
         // If tray is in use, run the tray event loop on the main thread.
         // Spawn joystick on a background thread so it doesn't block the event loop.
-        #[cfg(feature = "joystick")]
+
         {
             let cfg_for_joy = cfg.clone();
             std::thread::spawn(move || {
@@ -63,7 +63,7 @@ fn main() {
                 joystick::run(cfg_for_joy);
             });
         }
-        #[cfg(not(feature = "joystick"))]
+        
         {
             warn!("No joystick feature enabled. Build with `--features joystick` to enable input.");
         }
@@ -72,20 +72,20 @@ fn main() {
             warn!("Tray failed to start: {:?}", e);
         }
     } else {
-        #[cfg(feature = "joystick")]
+        
         {
             info!("Joystick feature enabled — scanning for controllers...");
             joystick::run(cfg.clone());
         }
 
-        #[cfg(not(feature = "joystick"))]
+        
         {
             warn!("No joystick feature enabled. Build with `--features joystick` to enable input.");
         }
     }
 }
 
-#[cfg(feature = "joystick")]
+
 mod joystick {
     use log::info;
     use std::sync::{Arc, RwLock};

@@ -1,4 +1,4 @@
-#![cfg(all(target_os = "macos", feature = "tray"))]
+#![cfg(target_os = "macos")]
 
 use log::warn;
 use std::env;
