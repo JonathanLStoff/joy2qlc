@@ -14,6 +14,7 @@ This project reads events from a joystick or gamepad and maps them to actions su
 - Simulate keypresses (feature: `simulate-keys`) ⌨️
 - Send HTTP/REST events as a client (feature: `rest-client`) 🌐
 - Run a small REST receiver (feature: `rest-server`) 🛰️
+- macOS menu bar (tray) (enabled by default on macOS) 🍎
 
 ## Quick start
 
@@ -23,8 +24,8 @@ This project reads events from a joystick or gamepad and maps them to actions su
 3. Build and run with desired features. Examples:
 
 ```bash
-# Build and run with joystick reading + MIDI output + tray on macOS
-cargo run --features "joystick midi tray"
+# Build and run with joystick reading + MIDI output (tray enabled by default on macOS)
+cargo run --features "joystick midi"
 
 # Build and run with joystick reading + REST client
 cargo run --features "joystick rest-client"
@@ -114,7 +115,7 @@ If you'd like, I can also add: a sample `mappings.toml`, a small CLI for loading
 
 ## macOS Tray / Launch at Login (menu bar icon) 🍎
 
-A native macOS menu bar (tray) is provided by the optional feature `tray`. It gives you quick access to:
+A native macOS menu bar (tray) is provided and enabled by default on macOS. It gives you quick access to:
 
 - **Open Config** — open `mappings.toml` in Visual Studio Code
 - **Open Actions Log** — open the recorded `/Library/Logs/joy2qlc/actions.log`
@@ -122,10 +123,10 @@ A native macOS menu bar (tray) is provided by the optional feature `tray`. It gi
 - **Toggle Open at Login** — register/remove a LaunchAgent plist under `~/Library/LaunchAgents`
 - **Quit** — stop the app
 
-Enable and run with:
+Note: tray support is built by default on macOS; enable other features as needed.
 
 ```bash
-cargo run --features "joystick simulate-keys tray"
+cargo run --features "joystick simulate-keys"
 ```
 
 Notes & tips:
